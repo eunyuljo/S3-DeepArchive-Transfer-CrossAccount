@@ -1,0 +1,28 @@
+# AWS Profile Configuration
+# AWS CLI profile name for Source account
+aws_profile = "source-account"
+
+# AWS Region
+aws_region = "ap-northeast-2"
+
+# Source S3 Bucket Configuration
+# Bucket name must be globally unique
+# Recommended: Use pattern like "company-deep-archive-source-YYYYMMDD"
+source_bucket_name = "my-deep-archive-source-20250124"
+
+# Target Account Configuration
+# Target AWS Account ID (12-digit number)
+# Get this from: aws sts get-caller-identity --profile target-account --query Account --output text
+target_account_id = "123456789012"
+
+# Environment Tag
+environment = "test"
+
+# Additional Tags (optional)
+# Uncomment and modify if needed
+# tags = {
+#   Project     = "S3-Deep-Archive-Transfer"
+#   Owner       = "DevOps Team"
+#   CostCenter  = "Engineering"
+#   Environment = "test"
+# }

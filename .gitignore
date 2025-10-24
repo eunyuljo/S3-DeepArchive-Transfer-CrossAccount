@@ -1,0 +1,54 @@
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/terraform.tfstate.*.backup
+**/.terraformrc
+**/terraform.rc
+
+# Terraform variables (실제 값 포함된 파일)
+**/*.tfvars
+!**/*.tfvars.example
+
+# Terraform plan files
+**/tfplan
+**/*.tfplan
+
+# AWS
+.aws/
+*.pem
+*.key
+
+# Test data
+test-data/sample-files/checksums.txt
+!test-data/README.md
+scripts/test-data/*
+
+# Temporary files
+/tmp/
+*.tmp
+*.log
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+.Trash-*
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Scripts generated files
+monitor-restore-*.sh
+copy-report-*.txt
+source-bucket-name.txt
+restore-info.txt
+
+# Backup files
+*.bak
+*.backup

@@ -1,0 +1,38 @@
+# AWS Profile Configuration
+# AWS CLI profile name for Target account
+aws_profile = "target-account"
+
+# AWS Region
+aws_region = "ap-northeast-2"
+
+# Target S3 Bucket Configuration
+# Bucket name must be globally unique
+# Recommended: Use pattern like "company-deep-archive-target-YYYYMMDD"
+target_bucket_name = "my-deep-archive-target-20250124"
+
+# Source Account Configuration
+# Source AWS Account ID (12-digit number)
+# Get this from: aws sts get-caller-identity --profile source-account --query Account --output text
+source_account_id = "987654321098"
+
+# Source Bucket Name
+# Must match the bucket name created in source account
+# Get this from: cd ../source-account && terraform output -raw source_bucket_name
+source_bucket_name = "my-deep-archive-source-20250124"
+
+# IAM User Configuration
+# Set to true to create an IAM user with cross-account access permissions
+# Set to false if you want to use existing credentials or roles
+create_iam_user = true
+
+# Environment Tag
+environment = "test"
+
+# Additional Tags (optional)
+# Uncomment and modify if needed
+# tags = {
+#   Project     = "S3-Deep-Archive-Transfer"
+#   Owner       = "DevOps Team"
+#   CostCenter  = "Engineering"
+#   Environment = "test"
+# }

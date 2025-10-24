@@ -1,0 +1,408 @@
+# S3 Deep Archive Scripts
+
+S3 Deep Archive 크로스 계정 전송을 위한 자동화 스크립트 모음입니다.
+
+## Scripts Overview
+
+| Script | Purpose | Duration |
+|--------|---------|----------|
+| `01-upload-to-deep-archive.sh` | 테스트 파일을 Deep Archive로 업로드 | ~1분 |
+| `02-restore-from-deep-archive.sh` | Deep Archive에서 복원 요청 | ~1분 (복원 완료는 12시간) |
+| `03-cross-account-copy.sh` | 복원된 데이터를 Target 계정으로 복사 | 데이터 크기에 따라 다름 |
+| `04-cleanup.sh` | 테스트 리소스 정리 | ~5분 |
+
+## Prerequisites
+
+### 1. AWS CLI 구성
+
+두 개의 프로파일 설정 (Source와 Target 계정):
+
+```bash
+# ~/.aws/credentials
+[source-account]
+aws_access_key_id = AKIA...
+aws_secret_access_key = ...
+region = ap-northeast-2
+
+[target-account]
+aws_access_key_id = AKIA...
+aws_secret_access_key = ...
+region = ap-northeast-2
+```
+
+### 2. 환경 변수 설정 (선택사항)
+
+```bash
+export AWS_PROFILE=source-account
+export SOURCE_BUCKET=my-deep-archive-source
+export TARGET_BUCKET=my-deep-archive-target
+```
+
+### 3. Terraform 리소스 생성
+
+스크립트 실행 전에 Terraform으로 버킷 생성:
+
+```bash
+# Source account
+cd ../source-account
+terraform apply
+
+# Target account
+cd ../target-account
+terraform apply
+```
+
+## Detailed Usage
+
+### Script 1: Upload to Deep Archive
+
+테스트 데이터를 생성하고 Deep Archive로 업로드합니다.
+
+```bash
+./01-upload-to-deep-archive.sh [source-bucket-name]
+```
+
+**생성되는 테스트 파일:**
+- `test-small.txt` - 텍스트 파일
+- `test-medium.bin` - 1MB 바이너리
+- `test-large.bin` - 10MB 바이너리
+- `test-data.json` - JSON 데이터
+- `test-data.csv` - CSV 데이터
+
+**Output:**
+- 파일들이 `s3://bucket-name/deep-archive/` 에 업로드됨
+- 체크섬 파일 생성: `../test-data/sample-files/checksums.txt`
+- Storage class: DEEP_ARCHIVE
+
+**검증:**
+```bash
+# 업로드된 파일 확인
+aws s3 ls s3://SOURCE-BUCKET/deep-archive/ --recursive
+
+# Storage class 확인
+aws s3api head-object \
+    --bucket SOURCE-BUCKET \
+    --key deep-archive/test-small.txt \
+    | grep StorageClass
+```
+
+### Script 2: Restore from Deep Archive
+
+Deep Archive에서 객체를 복원합니다.
+
+```bash
+./02-restore-from-deep-archive.sh [source-bucket] [tier] [days]
+```
+
+**Parameters:**
+- `tier`: 복원 티어
+  - `Bulk` (기본값): 12시간, $0.025/GB
+  - `Standard`: 12시간, $0.10/GB
+- `days`: 복원 데이터 유지 기간 (기본: 7일)
+
+**Examples:**
+```bash
+# Bulk tier로 7일간 복원
+./02-restore-from-deep-archive.sh my-source-bucket Bulk 7
+
+# Standard tier로 3일간 복원
+./02-restore-from-deep-archive.sh my-source-bucket Standard 3
+```
+
+**복원 상태 모니터링:**
+
+스크립트가 자동으로 모니터링 스크립트를 생성합니다:
+
+```bash
+/tmp/monitor-restore-BUCKET-NAME.sh "BUCKET-NAME" "OBJECT-LIST"
+```
+
+또는 수동으로 확인:
+
+```bash
+# 단일 객체 상태 확인
+aws s3api head-object \
+    --bucket SOURCE-BUCKET \
+    --key deep-archive/test-small.txt \
+    | grep Restore
+
+# 출력 예시:
+# "Restore": "ongoing-request=\"true\""  → 복원 진행 중
+# "Restore": "ongoing-request=\"false\", expiry-date=\"...\"" → 복원 완료
+```
+
+**복원 완료까지의 시간:**
+- Bulk: 일반적으로 12시간 이내
+- Standard: 일반적으로 12시간 이내
+
+### Script 3: Cross-Account Copy
+
+복원된 데이터를 Target 계정으로 복사합니다.
+
+```bash
+./03-cross-account-copy.sh [source-bucket] [target-bucket]
+```
+
+**Prerequisites:**
+1. 모든 객체가 완전히 복원됨
+2. Source bucket policy에서 Target 계정 허용
+3. Target 계정에 Source 버킷 읽기 권한
+4. Target 계정에 Target 버킷 쓰기 권한
+
+**실행 전 확인사항:**
+
+```bash
+# Source bucket policy 확인
+aws s3api get-bucket-policy \
+    --bucket SOURCE-BUCKET \
+    | jq -r '.Policy | fromjson'
+
+# Target 계정 권한 확인 (Target 계정 자격증명으로)
+aws s3 ls s3://SOURCE-BUCKET/deep-archive/ --profile target-account
+aws s3 ls s3://TARGET-BUCKET/ --profile target-account
+```
+
+**작업 내용:**
+1. 복원 상태 확인
+2. 데이터 크기 계산
+3. Source → Target 복사
+4. 체크섬 검증 (가능한 경우)
+5. 리포트 생성
+
+**Output:**
+- 복사된 파일: `s3://target-bucket/restored/`
+- 리포트 파일: `/tmp/copy-report-TIMESTAMP.txt`
+
+### Script 4: Cleanup
+
+테스트 리소스를 정리합니다.
+
+```bash
+./04-cleanup.sh [--all] [--keep-buckets]
+```
+
+**Options:**
+- `--all`: 모든 리소스 삭제 (Terraform 포함)
+- `--keep-buckets`: 버킷은 유지하고 객체만 삭제
+
+**Interactive Mode:**
+
+옵션 없이 실행하면 대화형 메뉴가 나타납니다:
+
+```
+1. Clean S3 objects only
+2. Clean S3 objects and local test data
+3. Full cleanup (destroy Terraform resources)
+4. Cancel
+```
+
+**Examples:**
+```bash
+# 대화형 모드
+./04-cleanup.sh
+
+# S3 객체만 삭제
+./04-cleanup.sh --keep-buckets
+
+# 전체 삭제 (Terraform 포함)
+./04-cleanup.sh --all
+```
+
+## Complete Workflow
+
+### End-to-End 테스트:
+
+```bash
+# 1. Terraform 리소스 생성 (한 번만)
+cd ../source-account && terraform apply && cd -
+cd ../target-account && terraform apply && cd -
+
+# 2. 테스트 데이터 업로드
+./01-upload-to-deep-archive.sh
+
+# 3. 복원 요청
+./02-restore-from-deep-archive.sh
+
+# 4. 복원 대기 (~12시간)
+# 상태 확인
+/tmp/monitor-restore-*.sh
+
+# 5. 복원 완료 후 복사
+./03-cross-account-copy.sh
+
+# 6. 검증
+aws s3 ls s3://TARGET-BUCKET/restored/ --recursive
+
+# 7. 정리
+./04-cleanup.sh
+```
+
+## Troubleshooting
+
+### 문제: Upload 실패
+
+```
+Error: An error occurred (AccessDenied)
+```
+
+**해결:**
+```bash
+# AWS credentials 확인
+aws sts get-caller-identity
+
+# Bucket 존재 확인
+aws s3 ls s3://BUCKET-NAME/
+
+# IAM 권한 확인
+aws iam get-user-policy --user-name YOUR-USER --policy-name YOUR-POLICY
+```
+
+### 문제: Restore 실패
+
+```
+Error: RestoreAlreadyInProgress
+```
+
+**해결:**
+
+이미 복원 중인 상태입니다. 대기하거나 상태 확인:
+
+```bash
+aws s3api head-object \
+    --bucket SOURCE-BUCKET \
+    --key deep-archive/file.txt \
+    | grep Restore
+```
+
+### 문제: Cross-Account Copy 실패
+
+```
+Error: Access Denied
+```
+
+**체크리스트:**
+1. Source bucket policy 확인
+   ```bash
+   aws s3api get-bucket-policy --bucket SOURCE-BUCKET
+   ```
+
+2. Target 계정 IAM 권한 확인
+   ```bash
+   aws iam list-attached-user-policies --user-name s3-copy-user
+   ```
+
+3. 객체 복원 완료 확인
+   ```bash
+   aws s3api head-object --bucket SOURCE-BUCKET --key KEY | grep Restore
+   ```
+
+### 문제: InvalidObjectState
+
+```
+Error: The operation is not valid for the object's storage class
+```
+
+**원인:** 객체가 아직 복원되지 않음
+
+**해결:**
+```bash
+# 복원 요청
+./02-restore-from-deep-archive.sh
+
+# 대기 후 재시도
+```
+
+## Performance Tips
+
+### 대용량 파일 처리
+
+10MB 이상의 파일은 multipart upload 사용:
+
+```bash
+aws s3 cp large-file.bin s3://BUCKET/key \
+    --storage-class DEEP_ARCHIVE
+```
+
+### 병렬 처리
+
+여러 파일 동시 복사:
+
+```bash
+# GNU parallel 사용
+aws s3 ls s3://SOURCE-BUCKET/deep-archive/ | \
+    awk '{print $4}' | \
+    parallel -j 4 aws s3 cp \
+        s3://SOURCE-BUCKET/deep-archive/{} \
+        s3://TARGET-BUCKET/restored/{}
+```
+
+### 복원 비용 절감
+
+- Bulk tier 사용 (Standard 대비 75% 저렴)
+- 필요한 파일만 선택적 복원
+- 복원 기간 최소화
+
+## Cost Estimation
+
+### Example: 100GB 데이터 전송
+
+| 항목 | 비용 |
+|------|------|
+| Deep Archive 저장 (1개월) | $0.099 |
+| Bulk 복원 (100GB) | $2.50 |
+| 데이터 전송 (같은 리전) | $0 |
+| Target S3 Standard (1개월) | $2.30 |
+| **총계** | **~$4.90** |
+
+### 비용 절감 팁
+
+1. **Bulk tier 사용**: Standard 대비 75% 저렴
+2. **같은 리전 사용**: 데이터 전송 비용 없음
+3. **복원 기간 최소화**: 필요한 기간만 지정
+4. **선택적 복원**: 필요한 파일만 복원
+
+## Advanced Usage
+
+### Custom Storage Class
+
+Target 버킷에 다른 storage class로 복사:
+
+```bash
+aws s3 cp \
+    s3://SOURCE/key \
+    s3://TARGET/key \
+    --storage-class INTELLIGENT_TIERING
+```
+
+### Metadata 보존
+
+```bash
+aws s3 cp \
+    s3://SOURCE/key \
+    s3://TARGET/key \
+    --metadata-directive COPY
+```
+
+### ACL 설정
+
+```bash
+aws s3 cp \
+    s3://SOURCE/key \
+    s3://TARGET/key \
+    --acl bucket-owner-full-control
+```
+
+## Next Steps
+
+스크립트 실행 후:
+
+1. **비용 모니터링**: AWS Cost Explorer에서 비용 확인
+2. **성능 측정**: CloudWatch metrics 확인
+3. **자동화**: 프로덕션용 파이프라인 구축
+4. **문서화**: 팀과 프로세스 공유
+
+## Additional Resources
+
+- [AWS S3 Pricing](https://aws.amazon.com/s3/pricing/)
+- [S3 Storage Classes](https://aws.amazon.com/s3/storage-classes/)
+- [Cross-Account Access](https://docs.aws.amazon.com/AmazonS3/latest/userguide/example-walkthroughs-managing-access-example2.html)
